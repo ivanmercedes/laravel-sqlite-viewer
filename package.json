@@ -9,15 +9,37 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onLanguage:sql"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "laravel-sqlite-viewer.helloWorld",
-        "title": "Hello World"
+        "command": "laravel-sqlite-viewer.openDatabase",
+        "title": "Open SQLite Database",
+        "category": "SQLite"
+      },
+      {
+        "command": "laravel-sqlite-viewer.toggleEditMode",
+        "title": "Toggle Edit Mode",
+        "category": "SQLite"
+      },
+      {
+        "command": "laravel-sqlite-viewer.runQuery",
+        "title": "Run SQL Query",
+        "category": "SQLite"
       }
-    ]
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "when": "resourceExtname =~ /\\.(sqlite|db|sqlite3)$/",
+          "command": "laravel-sqlite-viewer.openDatabase",
+          "group": "navigation"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
@@ -34,6 +56,7 @@
     "test": "vscode-test"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
     "@types/vscode": "^1.108.1",
