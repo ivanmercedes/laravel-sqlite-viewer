@@ -1,9 +1,8 @@
 interface EditModeIndicatorProps {
     enabled: boolean;
-    onToggle: () => void;
 }
 
-export function EditModeIndicator({ enabled, onToggle }: EditModeIndicatorProps) {
+export function EditModeIndicator({ enabled }: EditModeIndicatorProps) {
     if (!enabled) {
         return null;
     }
@@ -15,16 +14,10 @@ export function EditModeIndicator({ enabled, onToggle }: EditModeIndicatorProps)
                 <span className="text-sm font-semibold text-[var(--vscode-inputValidation-warningForeground)]">
                     Edit Mode Active
                 </span>
-                <span className="text-xs text-[var(--vscode-descriptionForeground)]">
+                <span className="text-xs text-[var(--vscode-inputValidation-warningForeground)]">
                     • Write operations are enabled • Changes will be saved immediately
                 </span>
             </div>
-            <button
-                onClick={onToggle}
-                className="px-3 py-1 text-xs bg-[var(--vscode-button-background)] hover:bg-[var(--vscode-button-hoverBackground)] text-[var(--vscode-button-foreground)] rounded"
-            >
-                Disable Edit Mode
-            </button>
         </div>
     );
 }

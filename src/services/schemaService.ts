@@ -216,6 +216,37 @@ export class SchemaService {
     }
 
     /**
+     * Gets the primary key columns for a table
+     */
+    public getPrimaryKey(db: SqlJsDatabase, tableName: string): string[] {
+        try {
+            const results = db.exec(`PRAGMA table_info(${tableName})`);
+
+            if (results.length === 0) {
+                return [];
+            }
+
+            const result = results[0];
+            const pkColumns: string[] = result.values
+                .filter((row: any) => row[5] > 0) // pk column is at index 5
+                .map((row: any) => row[1] as string); // name column is at index 1
+
+            return pkColumns;
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`Failed to get primary key for ${tableName}: ${message}`);
+        }
+    }
+
+    /**
+     * Checks if a table has a primary key
+     */
+    public hasPrimaryKey(db: SqlJsDatabase, tableName: string): boolean {
+        const pkColumns = this.getPrimaryKey(db, tableName);
+        return pkColumns.length > 0;
+    }
+
+    /**
      * Clears all caches
      */
     public clearAllCaches(): void {

@@ -101,17 +101,26 @@ export function App() {
 
     return (
         <div className="h-screen flex flex-col bg-[var(--vscode-editor-background)] text-[var(--vscode-editor-foreground)]">
-            {/* Edit Mode Indicator */}
-            <EditModeIndicator
-                enabled={editModeEnabled}
-                onToggle={handleToggleEditMode}
-            />
+            {/* Edit Mode Banner */}
+            <EditModeIndicator enabled={editModeEnabled} />
 
             {/* Header */}
             <header className="px-4 py-2 border-b border-[var(--vscode-panel-border)] flex items-center justify-between">
                 <h1 className="text-sm font-semibold">
                     SQLite Viewer: {dbPath.split('/').pop() || 'Database'}
                 </h1>
+
+                {/* Edit Mode Toggle Button */}
+                <button
+                    onClick={handleToggleEditMode}
+                    className={`px-3 py-1 text-xs rounded transition-colors ${editModeEnabled
+                        ? 'bg-[var(--vscode-inputValidation-warningBackground)] text-[var(--vscode-inputValidation-warningForeground)] border border-[var(--vscode-inputValidation-warningBorder)]'
+                        : 'bg-[var(--vscode-button-secondaryBackground)] hover:bg-[var(--vscode-button-secondaryHoverBackground)] text-[var(--vscode-button-secondaryForeground)]'
+                        }`}
+                    title={editModeEnabled ? 'Edit Mode is active - Click to disable' : 'Enable Edit Mode to modify data'}
+                >
+                    {editModeEnabled ? 'Edit Mode: ON' : 'Read-Only Mode'}
+                </button>
             </header>
 
             {/* Main Content */}
@@ -155,6 +164,7 @@ export function App() {
                             <DataViewer
                                 tableData={tableData}
                                 selectedTable={selectedTable}
+                                editModeEnabled={editModeEnabled}
                                 onPageChange={handlePageChange}
                             />
                         )}

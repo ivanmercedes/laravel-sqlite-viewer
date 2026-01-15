@@ -9,6 +9,8 @@ export type ExtensionMessage =
     | { type: 'tableData'; data: unknown }
     | { type: 'queryResult'; result: unknown }
     | { type: 'editModeChanged'; enabled: boolean }
+    | { type: 'primaryKey'; tableName: string; columns: string[] }
+    | { type: 'updateSuccess'; rowsAffected: number }
     | { type: 'error'; message: string };
 
 // Webview → Extension Messages
@@ -17,6 +19,7 @@ export type WebviewMessage =
     | { type: 'getTables' }
     | { type: 'getTableData'; tableName: string; page: number; pageSize: number }
     | { type: 'getTableMetadata'; tableName: string }
+    | { type: 'getPrimaryKey'; tableName: string }
     | { type: 'executeQuery'; sql: string }
     | { type: 'toggleEditMode' }
     | { type: 'updateRow'; tableName: string; rowData: Record<string, unknown>; primaryKey: Record<string, unknown> };

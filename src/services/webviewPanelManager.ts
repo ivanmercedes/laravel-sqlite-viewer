@@ -212,18 +212,46 @@ export class WebviewPanelManager {
                     break;
                 }
 
+                case 'getPrimaryKey': {
+                    if (!this.currentDbPath) {
+                        this.sendMessage({ type: 'error', message: 'No database loaded' });
+                        return;
+                    }
+                    const { tableName } = message;
+                    const db = this.databaseService.getConnection(this.currentDbPath);
+                    const pkColumns = this.schemaService.getPrimaryKey(db, tableName);
+                    this.sendMessage({ type: 'primaryKey', tableName, columns: pkColumns });
+                    break;
+                }
+
                 case 'updateRow': {
                     if (!this.currentDbPath) {
                         this.sendMessage({ type: 'error', message: 'No database loaded' });
                         return;
                     }
-                    // TODO: Implement inline row update
+
+                    const { tableName, rowData, primaryKey } = message;
                     const editModeEnabled = this.editModeManager.isEnabled(this.currentDbPath);
+
                     if (!editModeEnabled) {
-                        throw new Error('Edit Mode must be enabled to update rows');
+                        this.sendMessage({ type: 'error', message: 'Edit Mode must be enabled to update rows' });
+                        return;
                     }
-                    // Generate UPDATE query based on rowData and primaryKey
-                    // Execute update
+
+                    // Execute the update
+                    const rowsAffected = this.databaseService.updateRow(
+                        this.currentDbPath,
+                        tableName,
+                        rowData,
+                        primaryKey,
+                        editModeEnabled
+                    );
+
+                    // Send success message
+                    this.sendMessage({ type: 'updateSuccess', rowsAffected });
+
+                    // Refresh table data (send updated data back)
+                    // Note: We could request the specific page, but for now we'll let the webview re-request
                     break;
                 }
             }

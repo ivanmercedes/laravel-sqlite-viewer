@@ -1,12 +1,46 @@
-import type { TableData } from '../types';
+import { useState, useEffect, useRef } from 'react';
+import { useExtension, useExtensionMessages } from '../vscode';
+import type { TableData, ExtensionMessage } from '../types';
 
 interface DataViewerProps {
     tableData: TableData | null;
     selectedTable: string | null;
+    editModeEnabled: boolean;
     onPageChange: (page: number) => void;
 }
 
-export function DataViewer({ tableData, selectedTable, onPageChange }: DataViewerProps) {
+interface EditingCell {
+    rowIndex: number;
+    columnName: string;
+    value: string;
+}
+
+export function DataViewer({ tableData, selectedTable, editModeEnabled, onPageChange }: DataViewerProps) {
+    const { postMessage } = useExtension();
+    const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
+    const [primaryKeyColumns, setPrimaryKeyColumns] = useState<string[]>([]);
+    const requestedTableRef = useRef<string | null>(null);
+
+    // Listen for primary key response
+    useExtensionMessages((message: ExtensionMessage) => {
+        if (message.type === 'primaryKey' && message.tableName === selectedTable) {
+            console.log('Received primary key:', message.columns);
+            setPrimaryKeyColumns(message.columns);
+        } else if (message.type === 'updateSuccess') {
+            console.log('Update successful, rows affected:', message.rowsAffected);
+        }
+    });
+
+    // Request primary key columns when table changes (only once per table)
+    useEffect(() => {
+        if (selectedTable && selectedTable !== requestedTableRef.current) {
+            console.log('Requesting primary key for:', selectedTable);
+            requestedTableRef.current = selectedTable;
+            postMessage({ type: 'getPrimaryKey', tableName: selectedTable });
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedTable]);
+
     if (!selectedTable) {
         return (
             <div className="flex items-center justify-center h-full text-[var(--vscode-descriptionForeground)]">
@@ -28,6 +62,106 @@ export function DataViewer({ tableData, selectedTable, onPageChange }: DataViewe
     const currentStart = (page - 1) * pageSize + 1;
     const currentEnd = Math.min(page * pageSize, totalRows);
 
+    const handleCellDoubleClick = (rowIndex: number, columnName: string, value: unknown) => {
+        console.log('Double click:', { rowIndex, columnName, editModeEnabled, primaryKeyColumns });
+
+        // Only allow editing if:
+        // 1. Edit mode is enabled
+        // 2. Table has primary key
+        // 3. Column is not a primary key column
+        if (!editModeEnabled) {
+            console.log('Edit mode not enabled');
+            return;
+        }
+
+        if (primaryKeyColumns.length === 0) {
+            console.log('No primary key columns found');
+            return; // Cannot edit without primary key
+        }
+
+        if (primaryKeyColumns.includes(columnName)) {
+            console.log('Cannot edit primary key column');
+            return; // Cannot edit primary key columns
+        }
+
+        console.log('Setting editing cell');
+        setEditingCell({
+            rowIndex,
+            columnName,
+            value: formatCellValue(value)
+        });
+    };
+
+    const handleCellEdit = (newValue: string) => {
+        if (editingCell) {
+            setEditingCell({ ...editingCell, value: newValue });
+        }
+    };
+
+    const handleCellSave = () => {
+        if (!editingCell || !tableData) {
+            return;
+        }
+
+        const row = rows[editingCell.rowIndex];
+        const originalValue = formatCellValue(row[editingCell.columnName]);
+
+        // Only save if value changed
+        if (editingCell.value === originalValue) {
+            setEditingCell(null);
+            return;
+        }
+
+        // Build primary key object
+        const primaryKey: Record<string, unknown> = {};
+        primaryKeyColumns.forEach(col => {
+            primaryKey[col] = row[col];
+        });
+
+        // Build row data with new value
+        const rowData: Record<string, unknown> = {
+            [editingCell.columnName]: editingCell.value === 'NULL' ? null : editingCell.value
+        };
+
+        // Send update message
+        postMessage({
+            type: 'updateRow',
+            tableName: selectedTable,
+            rowData,
+            primaryKey
+        });
+
+        setEditingCell(null);
+
+        // Request fresh data after a short delay
+        setTimeout(() => {
+            postMessage({
+                type: 'getTableData',
+                tableName: selectedTable,
+                page,
+                pageSize
+            });
+        }, 100);
+    };
+
+    const handleCellCancel = () => {
+        setEditingCell(null);
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') {
+            handleCellSave();
+        } else if (e.key === 'Escape') {
+            handleCellCancel();
+        }
+    };
+
+    const isPrimaryKeyColumn = (columnName: string) => {
+        return primaryKeyColumns.includes(columnName);
+    };
+
+    const canEditTable = editModeEnabled && primaryKeyColumns.length > 0;
+
     return (
         <div className="flex flex-col h-full">
             {/* Table Header Info */}
@@ -37,6 +171,11 @@ export function DataViewer({ tableData, selectedTable, onPageChange }: DataViewe
                     <span className="text-[var(--vscode-descriptionForeground)] ml-2">
                         • {totalRows.toLocaleString()} total rows
                     </span>
+                    {!canEditTable && editModeEnabled && (
+                        <span className="text-yellow-500 ml-2" title="Table requires a primary key for editing">
+                            ⚠️ Read-only (no PK)
+                        </span>
+                    )}
                 </div>
                 <div className="text-xs text-[var(--vscode-descriptionForeground)]">
                     Showing {currentStart}-{currentEnd} of {totalRows.toLocaleString()}
@@ -53,7 +192,12 @@ export function DataViewer({ tableData, selectedTable, onPageChange }: DataViewe
                                     key={column}
                                     className="px-3 py-2 text-left font-semibold text-xs uppercase text-[var(--vscode-descriptionForeground)]"
                                 >
-                                    {column}
+                                    <span className="flex items-center">
+                                        {column}
+                                        {isPrimaryKeyColumn(column) && (
+                                            <span className="ml-1" title="Primary Key">🔑</span>
+                                        )}
+                                    </span>
                                 </th>
                             ))}
                         </tr>
@@ -72,13 +216,29 @@ export function DataViewer({ tableData, selectedTable, onPageChange }: DataViewe
                                         ? stringValue.substring(0, 200) + '...'
                                         : stringValue;
 
+                                    const isEditing = editingCell?.rowIndex === rowIndex && editingCell?.columnName === column;
+                                    const isEditable = canEditTable && !isPrimaryKeyColumn(column);
+
                                     return (
                                         <td
                                             key={column}
-                                            className="px-3 py-2 max-w-md overflow-hidden text-ellipsis whitespace-nowrap"
-                                            title={isTruncated ? stringValue : undefined}
+                                            className={`px-3 py-2 max-w-md overflow-hidden text-ellipsis whitespace-nowrap ${isEditable ? 'cursor-pointer hover:bg-[var(--vscode-input-background)]' : ''} ${isPrimaryKeyColumn(column) ? 'opacity-60' : ''}`}
+                                            title={isTruncated ? stringValue : (isEditable ? 'Double-click to edit' : undefined)}
+                                            onDoubleClick={() => handleCellDoubleClick(rowIndex, column, row[column])}
                                         >
-                                            {displayValue}
+                                            {isEditing ? (
+                                                <input
+                                                    type="text"
+                                                    value={editingCell.value}
+                                                    onChange={(e) => handleCellEdit(e.target.value)}
+                                                    onKeyDown={handleKeyDown}
+                                                    onBlur={handleCellSave}
+                                                    autoFocus
+                                                    className="w-full bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] border border-[var(--vscode-focusBorder)] px-1 rounded"
+                                                />
+                                            ) : (
+                                                displayValue
+                                            )}
                                         </td>
                                     );
                                 })}

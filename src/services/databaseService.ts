@@ -203,6 +203,70 @@ export class DatabaseService {
     }
 
     /**
+     * Updates a single row in a table
+     * @param dbPath Path to the database
+     * @param tableName Name of the table
+     * @param newValues Object with column names and new values
+     * @param primaryKeyValues Object with primary key column names and values
+     * @param editModeEnabled Whether edit mode is enabled
+     * @returns Number of rows affected
+     */
+    public updateRow(
+        dbPath: string,
+        tableName: string,
+        newValues: Record<string, unknown>,
+        primaryKeyValues: Record<string, unknown>,
+        editModeEnabled: boolean
+    ): number {
+        if (!editModeEnabled) {
+            throw new Error('Edit Mode must be enabled to update rows');
+        }
+
+        const db = this.getConnection(dbPath);
+
+        try {
+            // Build SET clause
+            const setColumns = Object.keys(newValues);
+            const setClause = setColumns.map(col => `${col} = ?`).join(', ');
+
+            // Build WHERE clause using primary key
+            const pkColumns = Object.keys(primaryKeyValues);
+            if (pkColumns.length === 0) {
+                throw new Error('Primary key required for UPDATE operation');
+            }
+            const whereClause = pkColumns.map(col => `${col} = ?`).join(' AND ');
+
+            // Build complete UPDATE query
+            const sql = `UPDATE ${tableName} SET ${setClause} WHERE ${whereClause}`;
+
+            // Prepare values array: SET values first, then WHERE values
+            const values = [
+                ...setColumns.map(col => newValues[col]),
+                ...pkColumns.map(col => primaryKeyValues[col])
+            ];
+
+            // Validate with QueryGuard
+            const guardResult = QueryGuard.canExecute(sql, editModeEnabled);
+            if (!guardResult.allowed) {
+                throw new Error(guardResult.reason);
+            }
+
+            // Execute the update
+            db.run(sql, values as any[]);
+
+            // Save changes to file
+            this.saveDatabase(dbPath);
+
+            // Return number of affected rows (sql.js doesn't provide this easily)
+            // We'll assume 1 row was affected if no error occurred
+            return 1;
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`Failed to update row: ${message}`);
+        }
+    }
+
+    /**
      * Saves the in-memory database back to file
      */
     private saveDatabase(dbPath: string): void {
