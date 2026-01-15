@@ -17,6 +17,11 @@ export function App() {
     const [error, setError] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'data' | 'sql'>('data');
 
+    // Signal to extension that webview is ready
+    useEffect(() => {
+        postMessage({ type: 'ready' });
+    }, [postMessage]);
+
     // Handle messages from extension
     useExtensionMessages((message: ExtensionMessage) => {
         switch (message.type) {

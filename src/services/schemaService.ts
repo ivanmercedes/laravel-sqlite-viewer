@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { Database as SqlJsDatabase } from 'sql.js';
 import { TableInfo, ColumnInfo, IndexInfo, ForeignKeyInfo } from '../types/database';
 
 /**
@@ -13,23 +13,33 @@ export class SchemaService {
     /**
      * Gets all tables in the database
      */
-    public getTables(db: Database.Database, dbPath: string, useCache: boolean = true): TableInfo[] {
+    public getTables(db: SqlJsDatabase, dbPath: string, useCache: boolean = true): TableInfo[] {
         if (useCache && this.tableCache.has(dbPath)) {
             return this.tableCache.get(dbPath)!;
         }
 
         try {
-            const stmt = db.prepare(`
-        SELECT name, type, sql, rootpage 
-        FROM sqlite_master 
-        WHERE type IN ('table', 'view') 
-        AND name NOT LIKE 'sqlite_%'
-        ORDER BY name
-      `);
+            const results = db.exec(`
+                SELECT name, type, sql, rootpage 
+                FROM sqlite_master 
+                WHERE type IN ('table', 'view') 
+                AND name NOT LIKE 'sqlite_%'
+                ORDER BY name
+            `);
 
-            const tables = stmt.all() as TableInfo[];
+            if (results.length === 0) {
+                return [];
+            }
+
+            const result = results[0];
+            const tables: TableInfo[] = result.values.map((row: any) => ({
+                name: row[0] as string,
+                type: row[1] as 'table' | 'view',
+                sql: row[2] as string | null,
+                rootpage: row[3] as number
+            }));
+
             this.tableCache.set(dbPath, tables);
-
             return tables;
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
@@ -41,7 +51,7 @@ export class SchemaService {
      * Gets columns for a specific table
      */
     public getColumns(
-        db: Database.Database,
+        db: SqlJsDatabase,
         dbPath: string,
         tableName: string,
         useCache: boolean = true
@@ -52,8 +62,21 @@ export class SchemaService {
         }
 
         try {
-            const stmt = db.prepare(`PRAGMA table_info(${tableName})`);
-            const columns = stmt.all() as ColumnInfo[];
+            const results = db.exec(`PRAGMA table_info(${tableName})`);
+
+            if (results.length === 0) {
+                return [];
+            }
+
+            const result = results[0];
+            const columns: ColumnInfo[] = result.values.map((row: any) => ({
+                cid: row[0] as number,
+                name: row[1] as string,
+                type: row[2] as string,
+                notnull: row[3] as number,
+                dflt_value: row[4] !== null ? String(row[4]) : null,
+                pk: row[5] as number
+            }));
 
             if (!this.columnCache.has(dbPath)) {
                 this.columnCache.set(dbPath, new Map());
@@ -71,7 +94,7 @@ export class SchemaService {
      * Gets indexes for a specific table
      */
     public getIndexes(
-        db: Database.Database,
+        db: SqlJsDatabase,
         dbPath: string,
         tableName: string,
         useCache: boolean = true
@@ -82,8 +105,20 @@ export class SchemaService {
         }
 
         try {
-            const stmt = db.prepare(`PRAGMA index_list(${tableName})`);
-            const indexes = stmt.all() as IndexInfo[];
+            const results = db.exec(`PRAGMA index_list(${tableName})`);
+
+            if (results.length === 0) {
+                return [];
+            }
+
+            const result = results[0];
+            const indexes: IndexInfo[] = result.values.map((row: any) => ({
+                seq: row[0] as number,
+                name: row[1] as string,
+                unique: row[2] as number,
+                origin: row[3] as string,
+                partial: row[4] as number
+            }));
 
             if (!this.indexCache.has(dbPath)) {
                 this.indexCache.set(dbPath, new Map());
@@ -101,7 +136,7 @@ export class SchemaService {
      * Gets foreign keys for a specific table
      */
     public getForeignKeys(
-        db: Database.Database,
+        db: SqlJsDatabase,
         dbPath: string,
         tableName: string,
         useCache: boolean = true
@@ -112,8 +147,23 @@ export class SchemaService {
         }
 
         try {
-            const stmt = db.prepare(`PRAGMA foreign_key_list(${tableName})`);
-            const foreignKeys = stmt.all() as ForeignKeyInfo[];
+            const results = db.exec(`PRAGMA foreign_key_list(${tableName})`);
+
+            if (results.length === 0) {
+                return [];
+            }
+
+            const result = results[0];
+            const foreignKeys: ForeignKeyInfo[] = result.values.map((row: any) => ({
+                id: row[0] as number,
+                seq: row[1] as number,
+                table: row[2] as string,
+                from: row[3] as string,
+                to: row[4] as string,
+                on_update: row[5] as string,
+                on_delete: row[6] as string,
+                match: row[7] as string
+            }));
 
             if (!this.foreignKeyCache.has(dbPath)) {
                 this.foreignKeyCache.set(dbPath, new Map());
@@ -131,7 +181,7 @@ export class SchemaService {
      * Gets complete metadata for a table
      */
     public getTableMetadata(
-        db: Database.Database,
+        db: SqlJsDatabase,
         dbPath: string,
         tableName: string
     ): {

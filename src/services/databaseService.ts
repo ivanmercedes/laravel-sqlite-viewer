@@ -1,34 +1,61 @@
-import Database from 'better-sqlite3';
+import initSqlJs, { Database as SqlJsDatabase } from 'sql.js';
+import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { ConnectionMode, QueryResult } from '../types/database';
 import { QueryGuard } from './queryGuard';
 
 /**
- * Central service for all SQLite database operations.
+ * Central service for all SQLite database operations using sql.js.
  * Opens databases in read-only mode by default for safety.
  */
 export class DatabaseService {
-    private connections: Map<string, Database.Database> = new Map();
+    private SQL: any;
+    private connections: Map<string, SqlJsDatabase> = new Map();
     private connectionModes: Map<string, ConnectionMode> = new Map();
+    private databaseBuffers: Map<string, Uint8Array> = new Map();
+
+    constructor() {
+        this.initSql();
+    }
+
+    /**
+     * Initialize sql.js
+     */
+    private async initSql() {
+        if (!this.SQL) {
+            const path = require('path');
+            this.SQL = await initSqlJs({
+                locateFile: (file: string) => {
+                    return path.join(__dirname, '../node_modules/sql.js/dist', file);
+                }
+            });
+        }
+    }
 
     /**
      * Opens a database connection
      */
-    public open(dbPath: string, mode: ConnectionMode = ConnectionMode.READ_ONLY): void {
+    public async open(dbPath: string, mode: ConnectionMode = ConnectionMode.READ_ONLY): Promise<void> {
+        // Ensure SQL.js is initialized
+        await this.initSql();
+
         // Close existing connection if any
         this.close(dbPath);
 
         try {
-            const db = new Database(dbPath, {
-                readonly: mode === ConnectionMode.READ_ONLY,
-                fileMustExist: true
-            });
+            // Read the database file
+            const buffer = fs.readFileSync(dbPath);
+            const dbBuffer = new Uint8Array(buffer);
+
+            // Create database from buffer
+            const db = new this.SQL.Database(dbBuffer);
 
             // Enable foreign keys
-            db.pragma('foreign_keys = ON');
+            db.run('PRAGMA foreign_keys = ON');
 
             this.connections.set(dbPath, db);
             this.connectionModes.set(dbPath, mode);
+            this.databaseBuffers.set(dbPath, dbBuffer);
 
             console.log(`Database opened: ${dbPath} (${mode})`);
         } catch (error) {
@@ -40,7 +67,7 @@ export class DatabaseService {
     /**
      * Gets an existing database connection
      */
-    private getConnection(dbPath: string): Database.Database {
+    public getConnection(dbPath: string): SqlJsDatabase {
         const connection = this.connections.get(dbPath);
         if (!connection) {
             throw new Error(`No connection found for: ${dbPath}`);
@@ -58,8 +85,8 @@ export class DatabaseService {
     /**
      * Reopens database in different mode
      */
-    public reopen(dbPath: string, mode: ConnectionMode): void {
-        this.open(dbPath, mode);
+    public async reopen(dbPath: string, mode: ConnectionMode): Promise<void> {
+        await this.open(dbPath, mode);
     }
 
     /**
@@ -86,35 +113,54 @@ export class DatabaseService {
 
         // Check if destructive and get confirmation
         if (QueryGuard.isDestructive(sql)) {
-            // This will be handled by the webview/extension UI
-            // For now, we just log it
             console.warn('Executing destructive query:', sql);
         }
 
         try {
-            const stmt = db.prepare(sql);
+            const classifiedType = QueryGuard.classifyQuery(sql);
 
             // For SELECT queries, return rows
-            if (stmt.reader) {
-                const rows = stmt.all();
-                const columns = rows.length > 0 && typeof rows[0] === 'object' && rows[0] !== null
-                    ? Object.keys(rows[0])
-                    : [];
+            if (classifiedType === 'READ') {
+                const results = db.exec(sql);
+
+                if (results.length === 0) {
+                    return {
+                        columns: [],
+                        rows: [],
+                        rowCount: 0
+                    };
+                }
+
+                const result = results[0]; const rows = result.values.map((row: any) => {
+                    const obj: Record<string, unknown> = {};
+                    result.columns.forEach((col: string, idx: number) => {
+                        obj[col] = row[idx];
+                    });
+                    return obj;
+                });
 
                 return {
-                    columns,
-                    rows: rows as Record<string, unknown>[],
+                    columns: result.columns,
+                    rows,
                     rowCount: rows.length
                 };
             }
-            // For write queries, return changes info
+            // For write queries, execute and save if needed
             else {
-                const info = stmt.run();
+                db.run(sql);
+                const changes = db.getRowsModified();
+
+                // Save changes back to file if in write mode
+                const mode = this.getConnectionMode(dbPath);
+                if (mode === ConnectionMode.READ_WRITE) {
+                    this.saveDatabase(dbPath);
+                }
+
                 return {
                     columns: [],
                     rows: [],
                     rowCount: 0,
-                    changes: info.changes
+                    changes
                 };
             }
         } catch (error) {
@@ -124,7 +170,7 @@ export class DatabaseService {
     }
 
     /**
-     * Executes a query with pagination
+     * Executes a paginated query
      */
     public executeQueryPaginated(
         dbPath: string,
@@ -132,49 +178,37 @@ export class DatabaseService {
         page: number = 1,
         pageSize: number = 100
     ): QueryResult {
-        const db = this.getConnection(dbPath);
-
-        // Only allow SELECT queries for pagination
-        const queryType = QueryGuard.classifyQuery(sql);
-        if (queryType !== 'READ') {
-            throw new Error('Only SELECT queries can be paginated');
-        }
-
         const offset = (page - 1) * pageSize;
-        const paginatedSql = `${sql.trim()} LIMIT ${pageSize} OFFSET ${offset}`;
+        const paginatedSql = `${sql} LIMIT ${pageSize} OFFSET ${offset}`;
 
-        try {
-            const stmt = db.prepare(paginatedSql);
-            const rows = stmt.all();
-            const columns = rows.length > 0 && typeof rows[0] === 'object' && rows[0] !== null
-                ? Object.keys(rows[0])
-                : [];
-
-            return {
-                columns,
-                rows: rows as Record<string, unknown>[],
-                rowCount: rows.length
-            };
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            throw new Error(`Query execution failed: ${message}`);
-        }
+        return this.executeQuery(dbPath, paginatedSql, false);
     }
 
     /**
-     * Gets total row count for a table
+     * Gets the total row count for a table
      */
     public getTableRowCount(dbPath: string, tableName: string): number {
         const db = this.getConnection(dbPath);
 
         try {
-            const stmt = db.prepare(`SELECT COUNT(*) as count FROM ${tableName}`);
-            const result = stmt.get() as { count: number };
-            return result.count;
+            const results = db.exec(`SELECT COUNT(*) as count FROM ${tableName}`);
+            if (results.length > 0 && results[0].values.length > 0) {
+                return results[0].values[0][0] as number;
+            }
+            return 0;
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             throw new Error(`Failed to get row count: ${message}`);
         }
+    }
+
+    /**
+     * Saves the in-memory database back to file
+     */
+    private saveDatabase(dbPath: string): void {
+        const db = this.getConnection(dbPath);
+        const data = db.export();
+        fs.writeFileSync(dbPath, Buffer.from(data));
     }
 
     /**
@@ -186,28 +220,22 @@ export class DatabaseService {
             connection.close();
             this.connections.delete(dbPath);
             this.connectionModes.delete(dbPath);
+            this.databaseBuffers.delete(dbPath);
             console.log(`Database closed: ${dbPath}`);
         }
     }
 
     /**
-     * Closes all connections
+     * Closes all database connections
      */
     public closeAll(): void {
-        for (const dbPath of this.connections.keys()) {
+        for (const [dbPath] of this.connections) {
             this.close(dbPath);
         }
     }
 
     /**
-     * Checks if database is open
-     */
-    public isOpen(dbPath: string): boolean {
-        return this.connections.has(dbPath);
-    }
-
-    /**
-     * Disposes resources
+     * Disposes resources (required by VS Code disposable pattern)
      */
     public dispose(): void {
         this.closeAll();

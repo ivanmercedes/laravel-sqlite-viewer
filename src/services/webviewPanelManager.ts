@@ -12,6 +12,7 @@ import { WebviewMessage, ExtensionMessage } from '../types/messages';
 export class WebviewPanelManager {
     private panel: vscode.WebviewPanel | undefined;
     private currentDbPath: string | undefined;
+    private pendingDbPath: string | undefined;
 
     constructor(
         private extensionUri: vscode.Uri,
@@ -79,8 +80,13 @@ export class WebviewPanelManager {
             this.currentDbPath = undefined;
         });
 
-        // Load the database
-        await this.loadDatabase(dbPath);
+        // Store the pending database to load after webview is ready
+        if (!this.currentDbPath) {
+            this.pendingDbPath = dbPath;
+        } else {
+            // Webview already exists, load immediately
+            await this.loadDatabase(dbPath);
+        }
     }
 
     /**
@@ -95,7 +101,7 @@ export class WebviewPanelManager {
             }
 
             // Open new database
-            this.databaseService.open(dbPath, ConnectionMode.READ_ONLY);
+            await this.databaseService.open(dbPath, ConnectionMode.READ_ONLY);
             this.currentDbPath = dbPath;
 
             // Send init message to webview
@@ -120,25 +126,33 @@ export class WebviewPanelManager {
      * Handles messages from the webview
      */
     private async handleWebviewMessage(message: WebviewMessage): Promise<void> {
-        if (!this.currentDbPath) {
-            this.sendMessage({ type: 'error', message: 'No database loaded' });
-            return;
-        }
-
         try {
             switch (message.type) {
                 case 'ready':
-                    // Webview is ready, can send initial data if needed
+                    // Webview is ready, load pending database if any
+                    if (this.pendingDbPath) {
+                        const dbPath = this.pendingDbPath;
+                        this.pendingDbPath = undefined;
+                        await this.loadDatabase(dbPath);
+                    }
                     break;
 
                 case 'getTables': {
-                    const db = (this.databaseService as any).getConnection(this.currentDbPath);
+                    if (!this.currentDbPath) {
+                        this.sendMessage({ type: 'error', message: 'No database loaded' });
+                        return;
+                    }
+                    const db = this.databaseService.getConnection(this.currentDbPath);
                     const tables = this.schemaService.getTables(db, this.currentDbPath);
                     this.sendMessage({ type: 'schemaData', tables });
                     break;
                 }
 
                 case 'getTableData': {
+                    if (!this.currentDbPath) {
+                        this.sendMessage({ type: 'error', message: 'No database loaded' });
+                        return;
+                    }
                     const { tableName, page, pageSize } = message;
                     const sql = `SELECT * FROM ${tableName}`;
                     const result = this.databaseService.executeQueryPaginated(
@@ -156,7 +170,11 @@ export class WebviewPanelManager {
                 }
 
                 case 'getTableMetadata': {
-                    const db = (this.databaseService as any).getConnection(this.currentDbPath);
+                    if (!this.currentDbPath) {
+                        this.sendMessage({ type: 'error', message: 'No database loaded' });
+                        return;
+                    }
+                    const db = this.databaseService.getConnection(this.currentDbPath);
                     const metadata = this.schemaService.getTableMetadata(
                         db,
                         this.currentDbPath,
@@ -167,6 +185,10 @@ export class WebviewPanelManager {
                 }
 
                 case 'executeQuery': {
+                    if (!this.currentDbPath) {
+                        this.sendMessage({ type: 'error', message: 'No database loaded' });
+                        return;
+                    }
                     const editModeEnabled = this.editModeManager.isEnabled(this.currentDbPath);
                     const result = this.databaseService.executeQuery(
                         this.currentDbPath,
@@ -178,15 +200,23 @@ export class WebviewPanelManager {
                 }
 
                 case 'toggleEditMode': {
+                    if (!this.currentDbPath) {
+                        this.sendMessage({ type: 'error', message: 'No database loaded' });
+                        return;
+                    }
                     await this.editModeManager.toggle(this.currentDbPath);
                     // Reopen connection in appropriate mode
                     const editModeEnabled = this.editModeManager.isEnabled(this.currentDbPath);
                     const mode = editModeEnabled ? ConnectionMode.READ_WRITE : ConnectionMode.READ_ONLY;
-                    this.databaseService.reopen(this.currentDbPath, mode);
+                    await this.databaseService.reopen(this.currentDbPath, mode);
                     break;
                 }
 
                 case 'updateRow': {
+                    if (!this.currentDbPath) {
+                        this.sendMessage({ type: 'error', message: 'No database loaded' });
+                        return;
+                    }
                     // TODO: Implement inline row update
                     const editModeEnabled = this.editModeManager.isEnabled(this.currentDbPath);
                     if (!editModeEnabled) {
@@ -215,7 +245,27 @@ export class WebviewPanelManager {
      * Generates the HTML content for the webview
      */
     private getWebviewContent(webview: vscode.Webview): string {
-        // Get the webview build output
+        // Check if we're in development mode (Vite dev server running on port 5173)
+        const isDev = false; // Disabled - too complex for VS Code webviews
+
+        if (isDev) {
+            // In development, load from Vite dev server for hot reload
+            return `<!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src http://localhost:5173 ws://localhost:5173; style-src ${webview.cspSource} 'unsafe-inline' http://localhost:5173; script-src 'unsafe-eval' 'unsafe-inline' http://localhost:5173;">
+      <title>SQLite Viewer</title>
+    </head>
+    <body>
+      <div id="root"></div>
+      <script type="module" src="http://localhost:5173/src/main.tsx"></script>
+    </body>
+    </html>`;
+        }
+
+        // Get built assets
         const scriptUri = webview.asWebviewUri(
             vscode.Uri.joinPath(this.extensionUri, 'webview', 'dist', 'assets', 'index.js')
         );
@@ -223,8 +273,6 @@ export class WebviewPanelManager {
             vscode.Uri.joinPath(this.extensionUri, 'webview', 'dist', 'assets', 'index.css')
         );
 
-        // For now, return a simple placeholder
-        // We'll build the actual React app in the next phase
         return `<!DOCTYPE html>
     <html lang="en">
     <head>

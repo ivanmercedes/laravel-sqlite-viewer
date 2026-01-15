@@ -64,11 +64,24 @@ export function DataViewer({ tableData, selectedTable, onPageChange }: DataViewe
                                 key={rowIndex}
                                 className="border-b border-[var(--vscode-panel-border)] hover:bg-[var(--vscode-list-hoverBackground)]"
                             >
-                                {columns.map((column) => (
-                                    <td key={column} className="px-3 py-2">
-                                        {formatCellValue(row[column])}
-                                    </td>
-                                ))}
+                                {columns.map((column) => {
+                                    const value = formatCellValue(row[column]);
+                                    const stringValue = String(value);
+                                    const isTruncated = stringValue.length > 200;
+                                    const displayValue = isTruncated
+                                        ? stringValue.substring(0, 200) + '...'
+                                        : stringValue;
+
+                                    return (
+                                        <td
+                                            key={column}
+                                            className="px-3 py-2 max-w-md overflow-hidden text-ellipsis whitespace-nowrap"
+                                            title={isTruncated ? stringValue : undefined}
+                                        >
+                                            {displayValue}
+                                        </td>
+                                    );
+                                })}
                             </tr>
                         ))}
                     </tbody>

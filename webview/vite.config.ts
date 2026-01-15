@@ -12,6 +12,15 @@ export default defineConfig({
     }),
     tailwindcss(),
   ],
+  server: {
+    port: 5173,
+    strictPort: true,
+    cors: true,
+    hmr: {
+      host: 'localhost',
+      protocol: 'ws'
+    }
+  },
   build: {
     outDir: 'dist',
     rollupOptions: {
