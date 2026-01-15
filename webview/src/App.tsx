@@ -10,6 +10,7 @@ export function App() {
     const { postMessage } = useExtension();
     const [dbPath, setDbPath] = useState<string>('');
     const [editModeEnabled, setEditModeEnabled] = useState(false);
+    const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
     const [tables, setTables] = useState<TableInfo[]>([]);
     const [selectedTable, setSelectedTable] = useState<string | null>(null);
     const [tableData, setTableData] = useState<TableData | null>(null);
@@ -52,6 +53,10 @@ export function App() {
 
             case 'editModeChanged':
                 setEditModeEnabled(message.enabled);
+                break;
+
+            case 'autoRefreshChanged':
+                setAutoRefreshEnabled(message.enabled);
                 break;
 
             case 'error':
@@ -99,6 +104,10 @@ export function App() {
         postMessage({ type: 'toggleEditMode' });
     };
 
+    const handleToggleAutoRefresh = () => {
+        postMessage({ type: 'toggleAutoRefresh' });
+    };
+
     return (
         <div className="h-screen flex flex-col bg-[var(--vscode-editor-background)] text-[var(--vscode-editor-foreground)]">
             {/* Edit Mode Banner */}
@@ -110,17 +119,32 @@ export function App() {
                     SQLite Viewer: {dbPath.split('/').pop() || 'Database'}
                 </h1>
 
-                {/* Edit Mode Toggle Button */}
-                <button
-                    onClick={handleToggleEditMode}
-                    className={`px-3 py-1 text-xs rounded transition-colors ${editModeEnabled
-                        ? 'bg-[var(--vscode-inputValidation-warningBackground)] text-[var(--vscode-inputValidation-warningForeground)] border border-[var(--vscode-inputValidation-warningBorder)]'
-                        : 'bg-[var(--vscode-button-secondaryBackground)] hover:bg-[var(--vscode-button-secondaryHoverBackground)] text-[var(--vscode-button-secondaryForeground)]'
-                        }`}
-                    title={editModeEnabled ? 'Edit Mode is active - Click to disable' : 'Enable Edit Mode to modify data'}
-                >
-                    {editModeEnabled ? 'Edit Mode: ON' : 'Read-Only Mode'}
-                </button>
+                {/* Toggle Buttons */}
+                <div className="flex items-center gap-2">
+                    {/* Auto-Refresh Toggle */}
+                    <button
+                        onClick={handleToggleAutoRefresh}
+                        className={`px-3 py-1 text-xs rounded transition-colors ${autoRefreshEnabled
+                            ? 'bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)]'
+                            : 'bg-[var(--vscode-button-secondaryBackground)] hover:bg-[var(--vscode-button-secondaryHoverBackground)] text-[var(--vscode-button-secondaryForeground)]'
+                            }`}
+                        title={autoRefreshEnabled ? 'Auto-refresh is ON - Click to disable' : 'Enable auto-refresh to update on DB changes'}
+                    >
+                        {autoRefreshEnabled ? '🔄 Auto-Refresh: ON' : '🔄 Auto-Refresh'}
+                    </button>
+
+                    {/* Edit Mode Toggle */}
+                    <button
+                        onClick={handleToggleEditMode}
+                        className={`px-3 py-1 text-xs rounded transition-colors ${editModeEnabled
+                            ? 'bg-[var(--vscode-inputValidation-warningBackground)] text-[var(--vscode-inputValidation-warningForeground)] border border-[var(--vscode-inputValidation-warningBorder)]'
+                            : 'bg-[var(--vscode-button-secondaryBackground)] hover:bg-[var(--vscode-button-secondaryHoverBackground)] text-[var(--vscode-button-secondaryForeground)]'
+                            }`}
+                        title={editModeEnabled ? 'Edit Mode is active - Click to disable' : 'Enable Edit Mode to modify data'}
+                    >
+                        {editModeEnabled ? 'Edit Mode: ON' : 'Read-Only Mode'}
+                    </button>
+                </div>
             </header>
 
             {/* Main Content */}

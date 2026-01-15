@@ -3,6 +3,7 @@ import * as path from 'path';
 import { DatabaseService } from './databaseService';
 import { SchemaService } from './schemaService';
 import { EditModeManager } from './editModeManager';
+import { FileWatcher } from './fileWatcher';
 import { ConnectionMode } from '../types/database';
 import { WebviewMessage, ExtensionMessage } from '../types/messages';
 
@@ -13,6 +14,11 @@ export class WebviewPanelManager {
     private panel: vscode.WebviewPanel | undefined;
     private currentDbPath: string | undefined;
     private pendingDbPath: string | undefined;
+    private fileWatcher: FileWatcher = new FileWatcher();
+    private autoRefreshEnabled: boolean = false;
+    private currentTable: string | undefined;
+    private currentPage: number = 1;
+    private currentPageSize: number = 100;
 
     constructor(
         private extensionUri: vscode.Uri,
@@ -154,6 +160,12 @@ export class WebviewPanelManager {
                         return;
                     }
                     const { tableName, page, pageSize } = message;
+
+                    // Store current view state for refresh
+                    this.currentTable = tableName;
+                    this.currentPage = page;
+                    this.currentPageSize = pageSize;
+
                     const sql = `SELECT * FROM ${tableName}`;
                     const result = this.databaseService.executeQueryPaginated(
                         this.currentDbPath,
@@ -224,6 +236,30 @@ export class WebviewPanelManager {
                     break;
                 }
 
+                case 'toggleAutoRefresh': {
+                    this.autoRefreshEnabled = !this.autoRefreshEnabled;
+                    console.log(`[Auto-Refresh] Toggled to: ${this.autoRefreshEnabled}`);
+                    console.log(`[Auto-Refresh] Current DB path: ${this.currentDbPath}`);
+
+                    if (this.autoRefreshEnabled && this.currentDbPath) {
+                        // Start watching the database file
+                        console.log('[Auto-Refresh] Starting file watcher...');
+                        this.fileWatcher.watch(this.currentDbPath, () => {
+                            console.log('[Auto-Refresh] Refresh callback triggered!');
+                            this.refreshCurrentView();
+                        });
+                    } else {
+                        // Stop watching
+                        console.log('[Auto-Refresh] Stopping file watcher...');
+                        this.fileWatcher.stop();
+                    }
+
+                    // Send state change to webview
+                    this.sendMessage({ type: 'autoRefreshChanged', enabled: this.autoRefreshEnabled });
+                    console.log('[Auto-Refresh] State change sent to webview');
+                    break;
+                }
+
                 case 'updateRow': {
                     if (!this.currentDbPath) {
                         this.sendMessage({ type: 'error', message: 'No database loaded' });
@@ -259,6 +295,45 @@ export class WebviewPanelManager {
             const message = error instanceof Error ? error.message : String(error);
             vscode.window.showErrorMessage(message);
             this.sendMessage({ type: 'error', message });
+        }
+    }
+
+    /**
+     * Refreshes the current view (called by file watcher)
+     */
+    private async refreshCurrentView(): Promise<void> {
+        if (!this.currentDbPath || !this.currentTable) {
+            console.log('[refreshCurrentView] Missing dbPath or table');
+            return;
+        }
+
+        try {
+            console.log(`[refreshCurrentView] Reloading database: ${this.currentDbPath}`);
+
+            // CRITICAL: Reopen the database to get fresh data from disk
+            // sql.js keeps data in memory, so we need to reload from file
+            // open() automatically closes the existing connection first
+            await this.databaseService.open(this.currentDbPath, ConnectionMode.READ_ONLY);
+
+            console.log(`[refreshCurrentView] Querying table: ${this.currentTable}`);
+            const sql = `SELECT * FROM ${this.currentTable}`;
+            const result = this.databaseService.executeQueryPaginated(
+                this.currentDbPath,
+                sql,
+                this.currentPage,
+                this.currentPageSize
+            );
+            const totalRows = this.databaseService.getTableRowCount(this.currentDbPath, this.currentTable);
+
+            console.log(`[refreshCurrentView] Sending ${result.rowCount} rows to webview`);
+            this.sendMessage({
+                type: 'tableData',
+                data: { ...result, totalRows, page: this.currentPage, pageSize: this.currentPageSize, hasMore: result.rowCount === this.currentPageSize }
+            });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.error('[refreshCurrentView] Error:', message);
+            this.sendMessage({ type: 'error', message: `Auto-refresh failed: ${message}` });
         }
     }
 
@@ -321,6 +396,7 @@ export class WebviewPanelManager {
      * Disposes the panel
      */
     public dispose(): void {
+        this.fileWatcher.dispose();
         this.panel?.dispose();
         if (this.currentDbPath) {
             this.databaseService.close(this.currentDbPath);

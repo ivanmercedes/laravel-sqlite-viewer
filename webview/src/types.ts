@@ -13,6 +13,7 @@ export type ExtensionMessage =
     | { type: 'editModeChanged'; enabled: boolean }
     | { type: 'primaryKey'; tableName: string; columns: string[] }
     | { type: 'updateSuccess'; rowsAffected: number }
+    | { type: 'autoRefreshChanged'; enabled: boolean }
     | { type: 'error'; message: string };
 
 // Webview → Extension Messages
@@ -24,6 +25,7 @@ export type WebviewMessage =
     | { type: 'getPrimaryKey'; tableName: string }
     | { type: 'executeQuery'; sql: string }
     | { type: 'toggleEditMode' }
+    | { type: 'toggleAutoRefresh' }
     | { type: 'updateRow'; tableName: string; rowData: Record<string, unknown>; primaryKey: Record<string, unknown> };
 
 // Data types

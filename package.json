@@ -29,6 +29,11 @@
         "command": "laravel-sqlite-viewer.runQuery",
         "title": "Run SQL Query",
         "category": "SQLite"
+      },
+      {
+        "command": "laravel-sqlite-viewer.findDatabases",
+        "title": "Find SQLite Databases",
+        "category": "SQLite"
       }
     ],
     "menus": {

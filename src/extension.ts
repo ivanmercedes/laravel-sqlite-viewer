@@ -3,16 +3,18 @@ import { DatabaseService } from './services/databaseService';
 import { SchemaService } from './services/schemaService';
 import { EditModeManager } from './services/editModeManager';
 import { WebviewPanelManager } from './services/webviewPanelManager';
+import { LaravelDetector } from './services/laravelDetector';
 
 let databaseService: DatabaseService;
 let schemaService: SchemaService;
 let editModeManager: EditModeManager;
 let webviewPanelManager: WebviewPanelManager;
+let laravelDetector: LaravelDetector;
 
 /**
  * Extension activation
  */
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
 	console.log('Laravel SQLite Viewer extension is now active');
 
 	// Initialize services
@@ -25,6 +27,9 @@ export function activate(context: vscode.ExtensionContext) {
 		schemaService,
 		editModeManager
 	);
+	laravelDetector = new LaravelDetector();
+
+	// Note: Auto-detection removed - use "Find SQLite Databases" command instead
 
 	// Register command: Open database
 	const openDatabaseCommand = vscode.commands.registerCommand(
@@ -79,16 +84,65 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	);
 
+	// Register command: Find SQLite Databases
+	const findDatabasesCommand = vscode.commands.registerCommand(
+		'laravel-sqlite-viewer.findDatabases',
+		async () => {
+			console.log('Manual database search triggered');
+			await findSQLiteDatabases(context);
+		}
+	);
+
 	// Register disposables
 	context.subscriptions.push(
 		openDatabaseCommand,
 		toggleEditModeCommand,
 		runQueryCommand,
+		findDatabasesCommand,
 		databaseService,
 		schemaService,
 		editModeManager,
 		webviewPanelManager
 	);
+}
+
+/**
+ * Finds SQLite databases in workspace and shows quick pick to open them
+ */
+async function findSQLiteDatabases(context: vscode.ExtensionContext) {
+	console.log('Starting SQLite database search...');
+
+	// Check if there are any workspace folders
+	if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
+		vscode.window.showWarningMessage('No workspace folder open');
+		return;
+	}
+
+	const laravelProjects = await laravelDetector.scanWorkspaces();
+
+	console.log(`Found ${laravelProjects.length} SQLite database(s)`);
+
+	if (laravelProjects.length === 0) {
+		vscode.window.showInformationMessage('No SQLite databases found in workspace');
+		return;
+	}
+
+	// Show quick pick with all found databases
+	const items = laravelProjects.map(({ workspace, dbPath }) => ({
+		label: laravelDetector.getDatabaseDisplayName(dbPath, workspace.uri),
+		description: dbPath,
+		dbPath
+	}));
+
+	const selected = await vscode.window.showQuickPick(items, {
+		placeHolder: 'Select a database to open',
+		matchOnDescription: true
+	});
+
+	if (selected) {
+		console.log(`Opening database: ${selected.dbPath}`);
+		await webviewPanelManager.openDatabase(selected.dbPath);
+	}
 }
 
 /**
