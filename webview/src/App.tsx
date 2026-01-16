@@ -109,12 +109,12 @@ export function App() {
     };
 
     return (
-        <div className="h-screen flex flex-col bg-[var(--vscode-editor-background)] text-[var(--vscode-editor-foreground)]">
+        <div className="h-screen flex flex-col bg-(--vscode-editor-background) text-(--vscode-editor-foreground)">
             {/* Edit Mode Banner */}
             <EditModeIndicator enabled={editModeEnabled} />
 
             {/* Header */}
-            <header className="px-4 py-2 border-b border-[var(--vscode-panel-border)] flex items-center justify-between">
+            <header className="px-4 py-2 border-b border-(--vscode-panel-border) flex items-center justify-between">
                 <h1 className="text-sm font-semibold">
                     SQLite Viewer: {dbPath.split('/').pop() || 'Database'}
                 </h1>
@@ -125,8 +125,8 @@ export function App() {
                     <button
                         onClick={handleToggleAutoRefresh}
                         className={`px-3 py-1 text-xs rounded transition-colors ${autoRefreshEnabled
-                            ? 'bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)]'
-                            : 'bg-[var(--vscode-button-secondaryBackground)] hover:bg-[var(--vscode-button-secondaryHoverBackground)] text-[var(--vscode-button-secondaryForeground)]'
+                            ? 'bg-(--vscode-button-background) text-(--vscode-button-foreground)'
+                            : 'bg-(--vscode-button-secondaryBackground) hover:bg-(--vscode-button-secondaryHoverBackground) text-(--vscode-button-secondaryForeground)'
                             }`}
                         title={autoRefreshEnabled ? 'Auto-refresh is ON - Click to disable' : 'Enable auto-refresh to update on DB changes'}
                     >
@@ -137,8 +137,8 @@ export function App() {
                     <button
                         onClick={handleToggleEditMode}
                         className={`px-3 py-1 text-xs rounded transition-colors ${editModeEnabled
-                            ? 'bg-[var(--vscode-inputValidation-warningBackground)] text-[var(--vscode-inputValidation-warningForeground)] border border-[var(--vscode-inputValidation-warningBorder)]'
-                            : 'bg-[var(--vscode-button-secondaryBackground)] hover:bg-[var(--vscode-button-secondaryHoverBackground)] text-[var(--vscode-button-secondaryForeground)]'
+                            ? 'bg-(--vscode-inputValidation-warningBackground) text-(--vscode-inputValidation-warningForeground) border border-(--vscode-inputValidation-warningBorder)'
+                            : 'bg-(--vscode-button-secondaryBackground) hover:bg-(--vscode-button-secondaryHoverBackground) text-(--vscode-button-secondaryForeground)'
                             }`}
                         title={editModeEnabled ? 'Edit Mode is active - Click to disable' : 'Enable Edit Mode to modify data'}
                     >
@@ -150,7 +150,7 @@ export function App() {
             {/* Main Content */}
             <div className="flex-1 flex overflow-hidden">
                 {/* Sidebar - Schema Explorer */}
-                <aside className="w-64 border-r border-[var(--vscode-panel-border)] overflow-y-auto">
+                <aside className="w-64 border-r border-(--vscode-panel-border) overflow-y-auto">
                     <SchemaExplorer
                         tables={tables}
                         selectedTable={selectedTable}
@@ -161,11 +161,11 @@ export function App() {
                 {/* Main Panel */}
                 <main className="flex-1 flex flex-col overflow-hidden">
                     {/* Tabs */}
-                    <div className="flex border-b border-[var(--vscode-panel-border)]">
+                    <div className="flex border-b border-(--vscode-panel-border)">
                         <button
                             className={`px-4 py-2 text-sm ${activeTab === 'data'
-                                ? 'bg-[var(--vscode-tab-activeBackground)] border-b-2 border-[var(--vscode-focusBorder)]'
-                                : 'bg-[var(--vscode-tab-inactiveBackground)] hover:bg-[var(--vscode-tab-hoverBackground)]'
+                                ? 'bg-(--vscode-tab-activeBackground) border-b-2 border-(--vscode-focusBorder)'
+                                : 'bg-(--vscode-tab-inactiveBackground) hover:bg-(--vscode-tab-hoverBackground)'
                                 }`}
                             onClick={() => setActiveTab('data')}
                         >
@@ -173,8 +173,8 @@ export function App() {
                         </button>
                         <button
                             className={`px-4 py-2 text-sm ${activeTab === 'sql'
-                                ? 'bg-[var(--vscode-tab-activeBackground)] border-b-2 border-[var(--vscode-focusBorder)]'
-                                : 'bg-[var(--vscode-tab-inactiveBackground)] hover:bg-[var(--vscode-tab-hoverBackground)]'
+                                ? 'bg-(--vscode-tab-activeBackground) border-b-2 border-(--vscode-focusBorder)'
+                                : 'bg-(--vscode-tab-inactiveBackground) hover:bg-(--vscode-tab-hoverBackground)'
                                 }`}
                             onClick={() => setActiveTab('sql')}
                         >
@@ -204,7 +204,7 @@ export function App() {
 
                     {/* Error Display */}
                     {error && (
-                        <div className="px-4 py-2 bg-[var(--vscode-inputValidation-errorBackground)] border-t border-[var(--vscode-inputValidation-errorBorder)] text-[var(--vscode-inputValidation-errorForeground)]">
+                        <div className="px-4 py-2 bg-(--vscode-inputValidation-errorBackground) border-t border-(--vscode-inputValidation-errorBorder) text-(--vscode-inputValidation-errorForeground)">
                             <strong>Error:</strong> {error}
                         </div>
                     )}
