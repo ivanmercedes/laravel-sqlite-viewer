@@ -185,6 +185,79 @@ export class DatabaseService {
     }
 
     /**
+     * Executes a table query with optional search and sort
+     */
+    public executeTableQuery(
+        dbPath: string,
+        tableName: string,
+        columns: string[],
+        page: number = 1,
+        pageSize: number = 100,
+        searchTerm?: string,
+        sortColumn?: string,
+        sortDirection?: 'ASC' | 'DESC'
+    ): QueryResult {
+        // Build base query
+        let sql = `SELECT * FROM ${tableName}`;
+
+        // Add search WHERE clause if provided
+        if (searchTerm && searchTerm.trim()) {
+            const term = searchTerm.trim();
+            const conditions = columns.map(col => {
+                // Use CAST for non-text columns to enable searching
+                return `CAST(${col} AS TEXT) LIKE '%' || ? || '%'`;
+            }).join(' OR ');
+
+            sql += ` WHERE ${conditions}`;
+        }
+
+        // Add ORDER BY clause if provided
+        if (sortColumn && columns.includes(sortColumn)) {
+            const direction = sortDirection === 'DESC' ? 'DESC' : 'ASC';
+            sql += ` ORDER BY ${sortColumn} ${direction}`;
+        }
+
+        // Add pagination
+        const offset = (page - 1) * pageSize;
+        sql += ` LIMIT ${pageSize} OFFSET ${offset}`;
+
+        // Execute with parameters if searching
+        if (searchTerm && searchTerm.trim()) {
+            const db = this.getConnection(dbPath);
+            const stmt = db.prepare(sql);
+
+            // Bind search term for each column
+            const params = columns.map(() => searchTerm.trim());
+            stmt.bind(params);
+
+            const rows: Record<string, unknown>[] = [];
+            while (stmt.step()) {
+                const row = stmt.getAsObject();
+                rows.push(row);
+            }
+            stmt.free();
+
+            return {
+                columns: columns,
+                rows,
+                rowCount: rows.length
+            };
+        }
+
+        // No search, execute normally
+        const result = this.executeQuery(dbPath, sql, false);
+
+        // IMPORTANT: Always return the columns from schema, not from query result
+        // This ensures columns are shown even when table is empty
+        return {
+            columns: columns,
+            rows: result.rows,
+            rowCount: result.rowCount
+        };
+    }
+
+
+    /**
      * Gets the total row count for a table
      */
     public getTableRowCount(dbPath: string, tableName: string): number {

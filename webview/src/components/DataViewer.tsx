@@ -7,7 +7,7 @@ interface DataViewerProps {
     tableData: TableData | null;
     selectedTable: string | null;
     editModeEnabled: boolean;
-    onPageChange: (page: number) => void;
+    onPageChange: (page: number, searchTerm?: string, sortColumn?: string, sortDirection?: 'ASC' | 'DESC') => void;
 }
 
 interface EditingCell {
@@ -22,25 +22,58 @@ export function DataViewer({ tableData, selectedTable, editModeEnabled, onPageCh
     const [primaryKeyColumns, setPrimaryKeyColumns] = useState<string[]>([]);
     const requestedTableRef = useRef<string | null>(null);
 
-    // Listen for primary key response
+    // Search and sort state
+    const [searchTerm, setSearchTerm] = useState('');
+    const [sortColumn, setSortColumn] = useState<string | null>(null);
+    const [sortDirection, setSortDirection] = useState<'ASC' | 'DESC'>('ASC');
+    const searchDebounceTimer = useRef<number | null>(null);
+
+    // Listen for messages including sort state from backend
     useExtensionMessages((message: ExtensionMessage) => {
         if (message.type === 'primaryKey' && message.tableName === selectedTable) {
             console.log('Received primary key:', message.columns);
             setPrimaryKeyColumns(message.columns);
         } else if (message.type === 'updateSuccess') {
             console.log('Update successful, rows affected:', message.rowsAffected);
+        } else if (message.type === 'tableData' && message.sortColumn) {
+            // Restore sort state from backend persistence
+            setSortColumn(message.sortColumn);
+            setSortDirection(message.sortDirection || 'ASC');
         }
     });
 
-    // Request primary key columns when table changes (only once per table)
+    // Request primary key columns when table changes
     useEffect(() => {
         if (selectedTable && selectedTable !== requestedTableRef.current) {
             console.log('Requesting primary key for:', selectedTable);
             requestedTableRef.current = selectedTable;
             postMessage({ type: 'getPrimaryKey', tableName: selectedTable });
+            // Reset search when changing tables
+            setSearchTerm('');
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedTable]);
+
+    // Debounced search effect
+    useEffect(() => {
+        if (searchDebounceTimer.current) {
+            clearTimeout(searchDebounceTimer.current);
+        }
+
+        searchDebounceTimer.current = setTimeout(() => {
+            if (selectedTable && tableData) {
+                // Trigger new fetch with search term AND current sort state
+                onPageChange(1, searchTerm, sortColumn || undefined, sortDirection);
+            }
+        }, 300);
+
+        return () => {
+            if (searchDebounceTimer.current) {
+                clearTimeout(searchDebounceTimer.current);
+            }
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [searchTerm]);
 
     if (!selectedTable) {
         return (
@@ -148,19 +181,27 @@ export function DataViewer({ tableData, selectedTable, editModeEnabled, onPageCh
 
     const canEditTable = editModeEnabled && primaryKeyColumns.length > 0;
 
-    // Render with or without virtual scrolling based on row count
-    if (rows.length === 0) {
-        return (
-            <div className="flex flex-col h-full">
-                <div className="px-4 py-2 border-b border-(--vscode-panel-border)">
-                    <span className="font-semibold">{selectedTable}</span>
-                </div>
-                <div className="flex items-center justify-center flex-1 text-(--vscode-descriptionForeground)">
-                    No data in this table
-                </div>
-            </div>
-        );
-    }
+    // Sort handler
+    const handleSort = (column: string) => {
+        let newDirection: 'ASC' | 'DESC' = 'ASC';
+
+        if (sortColumn === column) {
+            // Toggle direction if same column
+            newDirection = sortDirection === 'ASC' ? 'DESC' : 'ASC';
+        }
+
+        setSortColumn(column);
+        setSortDirection(newDirection);
+
+        // Trigger fetch with new sort
+        onPageChange(1, searchTerm, column, newDirection);
+    };
+
+    // Search change handler
+    const handleSearchChange = (value: string) => {
+        setSearchTerm(value);
+        // Debounce is handled by useEffect
+    };
 
     return <VirtualizedTable
         columns={columns}
@@ -181,6 +222,11 @@ export function DataViewer({ tableData, selectedTable, editModeEnabled, onPageCh
         pageSize={pageSize}
         hasMore={hasMore}
         onPageChange={onPageChange}
+        searchTerm={searchTerm}
+        handleSearchChange={handleSearchChange}
+        sortColumn={sortColumn}
+        sortDirection={sortDirection}
+        handleSort={handleSort}
     />;
 }
 
@@ -203,7 +249,12 @@ interface VirtualizedTableProps {
     page: number;
     pageSize: number;
     hasMore: boolean;
-    onPageChange: (page: number) => void;
+    onPageChange: (page: number, searchTerm?: string, sortColumn?: string, sortDirection?: 'ASC' | 'DESC') => void;
+    searchTerm: string;
+    handleSearchChange: (value: string) => void;
+    sortColumn: string | null;
+    sortDirection: 'ASC' | 'DESC';
+    handleSort: (column: string) => void;
 }
 
 function VirtualizedTable(props: VirtualizedTableProps) {
@@ -211,7 +262,8 @@ function VirtualizedTable(props: VirtualizedTableProps) {
         columns, rows, selectedTable, totalRows, currentStart, currentEnd,
         canEditTable, editModeEnabled, isPrimaryKeyColumn, editingCell,
         handleCellDoubleClick, handleCellEdit, handleKeyDown, handleCellSave,
-        page, pageSize, hasMore, onPageChange
+        page, pageSize, hasMore, onPageChange,
+        searchTerm, handleSearchChange, sortColumn, sortDirection, handleSort
     } = props;
 
     const parentRef = useRef<HTMLDivElement>(null);
@@ -225,6 +277,25 @@ function VirtualizedTable(props: VirtualizedTableProps) {
 
     return (
         <div className="flex flex-col h-full">
+            {/* Search Input */}
+            <div className="px-4 py-2 border-b border-(--vscode-panel-border)">
+                <input
+                    type="text"
+                    placeholder="Search in all columns..."
+                    value={searchTerm}
+                    onChange={(e) => handleSearchChange(e.target.value)}
+                    className="w-full px-3 py-1.5 text-sm bg-(--vscode-input-background) text-(--vscode-input-foreground) border border-(--vscode-input-border) rounded focus:outline-none focus:border-(--vscode-focusBorder)"
+                />
+                {searchTerm && (
+                    <button
+                        onClick={() => handleSearchChange('')}
+                        className="absolute right-6 top-3 text-xs text-(--vscode-descriptionForeground) hover:text-(--vscode-foreground)"
+                    >
+                        Clear
+                    </button>
+                )}
+            </div>
+
             {/* Table Header Info */}
             <div className="px-4 py-2 border-b border-(--vscode-panel-border) flex items-center justify-between">
                 <div className="text-sm">
@@ -252,12 +323,17 @@ function VirtualizedTable(props: VirtualizedTableProps) {
                                 {columns.map((column) => (
                                     <th
                                         key={column}
-                                        className="px-3 py-2 text-left font-semibold text-xs uppercase text-(--vscode-descriptionForeground)"
+                                        onClick={() => handleSort(column)}
+                                        className="px-3 py-2 text-left font-semibold text-xs uppercase text-(--vscode-descriptionForeground) cursor-pointer hover:bg-(--vscode-list-hoverBackground)"
+                                        title={`Click to sort by ${column}`}
                                     >
-                                        <span className="flex items-center">
+                                        <span className="flex items-center gap-1">
                                             {column}
                                             {isPrimaryKeyColumn(column) && (
                                                 <span className="ml-1" title="Primary Key">🔑</span>
+                                            )}
+                                            {sortColumn === column && (
+                                                <span className="ml-auto">{sortDirection === 'ASC' ? '↑' : '↓'}</span>
                                             )}
                                         </span>
                                     </th>
@@ -265,61 +341,81 @@ function VirtualizedTable(props: VirtualizedTableProps) {
                             </tr>
                         </thead>
                         <tbody>
-                            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                                const rowIndex = virtualRow.index;
-                                const row = rows[rowIndex];
+                            {rows.length === 0 ? (
+                                <tr>
+                                    <td colSpan={columns.length} className="px-4 py-8 text-center text-(--vscode-descriptionForeground)">
+                                        No data in this table
+                                    </td>
+                                </tr>
+                            ) : (
+                                <>
+                                    {/* Spacer before visible items */}
+                                    {rowVirtualizer.getVirtualItems().length > 0 && (
+                                        <tr>
+                                            <td style={{ height: rowVirtualizer.getVirtualItems()[0].start }} />
+                                        </tr>
+                                    )}
 
-                                return (
-                                    <tr
-                                        key={virtualRow.key}
-                                        data-index={virtualRow.index}
-                                        ref={rowVirtualizer.measureElement}
-                                        style={{
-                                            position: 'absolute',
-                                            top: 0,
-                                            left: 0,
-                                            width: '100%',
-                                            transform: `translateY(${virtualRow.start}px)`,
-                                        }}
-                                        className="border-b border-(--vscode-panel-border) hover:bg-(--vscode-list-hoverBackground)"
-                                    >
-                                        {columns.map((column) => {
-                                            const value = formatCellValue(row[column]);
-                                            const stringValue = String(value);
-                                            const isTruncated = stringValue.length > 200;
-                                            const displayValue = isTruncated
-                                                ? stringValue.substring(0, 200) + '...'
-                                                : stringValue;
+                                    {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                                        const rowIndex = virtualRow.index;
+                                        const row = rows[rowIndex];
 
-                                            const isEditing = editingCell?.rowIndex === rowIndex && editingCell?.columnName === column;
-                                            const isEditable = canEditTable && !isPrimaryKeyColumn(column);
+                                        return (
+                                            <tr
+                                                key={virtualRow.key}
+                                                data-index={virtualRow.index}
+                                                ref={rowVirtualizer.measureElement}
+                                                className="border-b border-(--vscode-panel-border) hover:bg-(--vscode-list-hoverBackground)"
+                                            >
+                                                {columns.map((column) => {
+                                                    const value = formatCellValue(row[column]);
+                                                    const stringValue = String(value);
+                                                    const isTruncated = stringValue.length > 200;
+                                                    const displayValue = isTruncated
+                                                        ? stringValue.substring(0, 200) + '...'
+                                                        : stringValue;
 
-                                            return (
-                                                <td
-                                                    key={column}
-                                                    className={`px-3 py-2 max-w-md overflow-hidden text-ellipsis whitespace-nowrap ${isEditable ? 'cursor-pointer hover:bg-(--vscode-input-background)' : ''} ${isPrimaryKeyColumn(column) ? 'opacity-60' : ''}`}
-                                                    title={isTruncated ? stringValue : (isEditable ? 'Double-click to edit' : undefined)}
-                                                    onDoubleClick={() => handleCellDoubleClick(rowIndex, column, row[column])}
-                                                >
-                                                    {isEditing ? (
-                                                        <input
-                                                            type="text"
-                                                            value={editingCell.value}
-                                                            onChange={(e) => handleCellEdit(e.target.value)}
-                                                            onKeyDown={handleKeyDown}
-                                                            onBlur={handleCellSave}
-                                                            autoFocus
-                                                            className="w-full bg-(--vscode-input-background) text-(--vscode-input-foreground) border border-(--vscode-focusBorder) px-1 rounded"
-                                                        />
-                                                    ) : (
-                                                        displayValue
-                                                    )}
-                                                </td>
-                                            );
-                                        })}
-                                    </tr>
-                                );
-                            })}
+                                                    const isEditing = editingCell?.rowIndex === rowIndex && editingCell?.columnName === column;
+                                                    const isEditable = canEditTable && !isPrimaryKeyColumn(column);
+
+                                                    return (
+                                                        <td
+                                                            key={column}
+                                                            className={`px-3 py-2 max-w-md overflow-hidden text-ellipsis whitespace-nowrap ${isEditable ? 'cursor-pointer hover:bg-(--vscode-input-background)' : ''} ${isPrimaryKeyColumn(column) ? 'opacity-60' : ''}`}
+                                                            title={isTruncated ? stringValue : (isEditable ? 'Double-click to edit' : undefined)}
+                                                            onDoubleClick={() => handleCellDoubleClick(rowIndex, column, row[column])}
+                                                        >
+                                                            {isEditing ? (
+                                                                <input
+                                                                    type="text"
+                                                                    value={editingCell.value}
+                                                                    onChange={(e) => handleCellEdit(e.target.value)}
+                                                                    onKeyDown={handleKeyDown}
+                                                                    onBlur={handleCellSave}
+                                                                    autoFocus
+                                                                    className="w-full bg-(--vscode-input-background) text-(--vscode-input-foreground) border border-(--vscode-focusBorder) px-1 rounded"
+                                                                />
+                                                            ) : (
+                                                                displayValue
+                                                            )}
+                                                        </td>
+                                                    );
+                                                })}
+                                            </tr>
+                                        );
+                                    })}
+
+                                    {/* Spacer after visible items */}
+                                    {rowVirtualizer.getVirtualItems().length > 0 && (
+                                        <tr>
+                                            <td style={{
+                                                height: rowVirtualizer.getTotalSize() -
+                                                    rowVirtualizer.getVirtualItems()[rowVirtualizer.getVirtualItems().length - 1].end
+                                            }} />
+                                        </tr>
+                                    )}
+                                </>
+                            )}
                         </tbody>
                     </table>
                 </div>

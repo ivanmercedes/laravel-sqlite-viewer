@@ -20,6 +20,9 @@ export class WebviewPanelManager {
     private currentPage: number = 1;
     private currentPageSize: number = 100;
 
+    // Persistent sort state per table
+    private tableSortState: Map<string, { column: string; direction: 'ASC' | 'DESC' }> = new Map();
+
     constructor(
         private extensionUri: vscode.Uri,
         private databaseService: DatabaseService,
@@ -159,24 +162,54 @@ export class WebviewPanelManager {
                         this.sendMessage({ type: 'error', message: 'No database loaded' });
                         return;
                     }
-                    const { tableName, page, pageSize } = message;
+                    const { tableName, page, pageSize, searchTerm, sortColumn, sortDirection } = message;
 
                     // Store current view state for refresh
                     this.currentTable = tableName;
                     this.currentPage = page;
                     this.currentPageSize = pageSize;
 
-                    const sql = `SELECT * FROM ${tableName}`;
-                    const result = this.databaseService.executeQueryPaginated(
+                    // Update sort state if provided, otherwise use existing state
+                    if (sortColumn !== undefined) {
+                        if (sortColumn) {
+                            this.tableSortState.set(tableName, {
+                                column: sortColumn,
+                                direction: sortDirection || 'ASC'
+                            });
+                        } else {
+                            // Clear sort if sortColumn is explicitly null/empty
+                            this.tableSortState.delete(tableName);
+                        }
+                    }
+
+                    // Retrieve persisted sort state
+                    const savedSort = this.tableSortState.get(tableName);
+                    const finalSortColumn = sortColumn !== undefined ? sortColumn : savedSort?.column;
+                    const finalSortDirection = sortDirection || savedSort?.direction || 'ASC';
+
+                    // Get columns for search
+                    const db = this.databaseService.getConnection(this.currentDbPath);
+                    const columns = this.schemaService.getColumns(db, this.currentDbPath, tableName);
+
+                    // Execute query with search and sort
+                    const result = this.databaseService.executeTableQuery(
                         this.currentDbPath,
-                        sql,
+                        tableName,
+                        columns.map((c: { name: string }) => c.name),
                         page,
-                        pageSize
+                        pageSize,
+                        searchTerm,
+                        finalSortColumn,
+                        finalSortDirection
                     );
+
                     const totalRows = this.databaseService.getTableRowCount(this.currentDbPath, tableName);
+
                     this.sendMessage({
                         type: 'tableData',
-                        data: { ...result, totalRows, page, pageSize, hasMore: result.rowCount === pageSize }
+                        data: { ...result, totalRows, page, pageSize, hasMore: result.rowCount === pageSize },
+                        sortColumn: finalSortColumn,
+                        sortDirection: finalSortDirection
                     });
                     break;
                 }

@@ -1,15 +1,13 @@
 /**
- * Message types for webview communication
- * These should match the types defined in the extension
+ * Message types for extension ↔ webview communication
  */
 
 // Extension → Webview Messages
 export type ExtensionMessage =
     | { type: 'init'; dbPath: string; editModeEnabled: boolean }
-    | { type: 'schemaData'; tables: TableInfo[] }
-    | { type: 'tableData'; data: TableData }
-    | { type: 'queryResult'; result: QueryResult }
-    | { type: 'tableMetadata'; metadata: TableMetadata }
+    | { type: 'schemaData'; tables: unknown[] }
+    | { type: 'tableData'; data: unknown; sortColumn?: string; sortDirection?: 'ASC' | 'DESC' }
+    | { type: 'queryResult'; result: unknown }
     | { type: 'editModeChanged'; enabled: boolean }
     | { type: 'primaryKey'; tableName: string; columns: string[] }
     | { type: 'updateSuccess'; rowsAffected: number }
@@ -20,7 +18,7 @@ export type ExtensionMessage =
 export type WebviewMessage =
     | { type: 'ready' }
     | { type: 'getTables' }
-    | { type: 'getTableData'; tableName: string; page: number; pageSize: number }
+    | { type: 'getTableData'; tableName: string; page: number; pageSize: number; searchTerm?: string; sortColumn?: string; sortDirection?: 'ASC' | 'DESC' }
     | { type: 'getTableMetadata'; tableName: string }
     | { type: 'getPrimaryKey'; tableName: string }
     | { type: 'executeQuery'; sql: string }

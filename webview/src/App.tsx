@@ -33,13 +33,15 @@ export function App() {
                 postMessage({ type: 'getTables' });
                 break;
 
-            case 'schemaData':
-                setTables(message.tables);
+            case 'schemaData': {
+                const tablesArray = message.tables as TableInfo[];
+                setTables(tablesArray);
                 // Auto-select first table if none selected
-                if (message.tables.length > 0 && !selectedTable) {
-                    handleTableSelect(message.tables[0].name);
+                if (tablesArray.length > 0 && !selectedTable) {
+                    handleTableSelect(tablesArray[0].name);
                 }
                 break;
+            }
 
             case 'tableData':
                 setTableData(message.data as TableData);
@@ -47,7 +49,8 @@ export function App() {
                 break;
 
             case 'queryResult':
-                setQueryResult(message.result);
+                setActiveTab('sql');
+                setQueryResult(message.result as QueryResult);
                 setError(null);
                 break;
 
@@ -81,13 +84,16 @@ export function App() {
         });
     };
 
-    const handlePageChange = (page: number) => {
+    const handlePageChange = (page: number, searchTerm?: string, sortColumn?: string, sortDirection?: 'ASC' | 'DESC') => {
         if (selectedTable) {
             postMessage({
                 type: 'getTableData',
                 tableName: selectedTable,
                 page,
-                pageSize: 100
+                pageSize: 100,
+                searchTerm,
+                sortColumn,
+                sortDirection
             });
         }
     };
