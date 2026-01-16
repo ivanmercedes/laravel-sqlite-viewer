@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { useExtension, useExtensionMessages } from '../vscode';
 import type { TableData, ExtensionMessage } from '../types';
 
@@ -43,7 +44,7 @@ export function DataViewer({ tableData, selectedTable, editModeEnabled, onPageCh
 
     if (!selectedTable) {
         return (
-            <div className="flex items-center justify-center h-full text-[var(--vscode-descriptionForeground)]">
+            <div className="flex items-center justify-center h-full text-(--vscode-descriptionForeground)">
                 Select a table to view data
             </div>
         );
@@ -51,7 +52,7 @@ export function DataViewer({ tableData, selectedTable, editModeEnabled, onPageCh
 
     if (!tableData) {
         return (
-            <div className="flex items-center justify-center h-full text-[var(--vscode-descriptionForeground)]">
+            <div className="flex items-center justify-center h-full text-(--vscode-descriptionForeground)">
                 Loading...
             </div>
         );
@@ -65,10 +66,6 @@ export function DataViewer({ tableData, selectedTable, editModeEnabled, onPageCh
     const handleCellDoubleClick = (rowIndex: number, columnName: string, value: unknown) => {
         console.log('Double click:', { rowIndex, columnName, editModeEnabled, primaryKeyColumns });
 
-        // Only allow editing if:
-        // 1. Edit mode is enabled
-        // 2. Table has primary key
-        // 3. Column is not a primary key column
         if (!editModeEnabled) {
             console.log('Edit mode not enabled');
             return;
@@ -76,12 +73,12 @@ export function DataViewer({ tableData, selectedTable, editModeEnabled, onPageCh
 
         if (primaryKeyColumns.length === 0) {
             console.log('No primary key columns found');
-            return; // Cannot edit without primary key
+            return;
         }
 
         if (primaryKeyColumns.includes(columnName)) {
             console.log('Cannot edit primary key column');
-            return; // Cannot edit primary key columns
+            return;
         }
 
         console.log('Setting editing cell');
@@ -99,52 +96,41 @@ export function DataViewer({ tableData, selectedTable, editModeEnabled, onPageCh
     };
 
     const handleCellSave = () => {
-        if (!editingCell || !tableData) {
+        if (!editingCell || !selectedTable) {
             return;
         }
 
         const row = rows[editingCell.rowIndex];
-        const originalValue = formatCellValue(row[editingCell.columnName]);
+        const oldValue = row[editingCell.columnName];
 
-        // Only save if value changed
-        if (editingCell.value === originalValue) {
+        if (formatCellValue(oldValue) === editingCell.value) {
+            console.log('Value unchanged');
             setEditingCell(null);
             return;
         }
 
-        // Build primary key object
-        const primaryKey: Record<string, unknown> = {};
-        primaryKeyColumns.forEach(col => {
-            primaryKey[col] = row[col];
-        });
+        console.log('Saving cell edit:', editingCell);
 
-        // Build row data with new value
-        const rowData: Record<string, unknown> = {
-            [editingCell.columnName]: editingCell.value === 'NULL' ? null : editingCell.value
-        };
+        const pkConditions: Record<string, unknown> = {};
+        for (const pkCol of primaryKeyColumns) {
+            pkConditions[pkCol] = row[pkCol];
+        }
 
-        // Send update message
+        // Build updated row data with the single changed column
+        const updatedRowData = { [editingCell.columnName]: editingCell.value };
+
         postMessage({
             type: 'updateRow',
             tableName: selectedTable,
-            rowData,
-            primaryKey
+            rowData: updatedRowData,
+            primaryKey: pkConditions
         });
 
         setEditingCell(null);
-
-        // Request fresh data after a short delay
-        setTimeout(() => {
-            postMessage({
-                type: 'getTableData',
-                tableName: selectedTable,
-                page,
-                pageSize
-            });
-        }, 100);
     };
 
     const handleCellCancel = () => {
+        console.log('Canceling edit');
         setEditingCell(null);
     };
 
@@ -162,13 +148,88 @@ export function DataViewer({ tableData, selectedTable, editModeEnabled, onPageCh
 
     const canEditTable = editModeEnabled && primaryKeyColumns.length > 0;
 
+    // Render with or without virtual scrolling based on row count
+    if (rows.length === 0) {
+        return (
+            <div className="flex flex-col h-full">
+                <div className="px-4 py-2 border-b border-(--vscode-panel-border)">
+                    <span className="font-semibold">{selectedTable}</span>
+                </div>
+                <div className="flex items-center justify-center flex-1 text-(--vscode-descriptionForeground)">
+                    No data in this table
+                </div>
+            </div>
+        );
+    }
+
+    return <VirtualizedTable
+        columns={columns}
+        rows={rows}
+        selectedTable={selectedTable}
+        totalRows={totalRows}
+        currentStart={currentStart}
+        currentEnd={currentEnd}
+        canEditTable={canEditTable}
+        editModeEnabled={editModeEnabled}
+        isPrimaryKeyColumn={isPrimaryKeyColumn}
+        editingCell={editingCell}
+        handleCellDoubleClick={handleCellDoubleClick}
+        handleCellEdit={handleCellEdit}
+        handleKeyDown={handleKeyDown}
+        handleCellSave={handleCellSave}
+        page={page}
+        pageSize={pageSize}
+        hasMore={hasMore}
+        onPageChange={onPageChange}
+    />;
+}
+
+// Separate component to use virtual scrolling
+interface VirtualizedTableProps {
+    columns: string[];
+    rows: any[];
+    selectedTable: string;
+    totalRows: number;
+    currentStart: number;
+    currentEnd: number;
+    canEditTable: boolean;
+    editModeEnabled: boolean;
+    isPrimaryKeyColumn: (col: string) => boolean;
+    editingCell: EditingCell | null;
+    handleCellDoubleClick: (rowIndex: number, columnName: string, value: unknown) => void;
+    handleCellEdit: (newValue: string) => void;
+    handleKeyDown: (e: React.KeyboardEvent) => void;
+    handleCellSave: () => void;
+    page: number;
+    pageSize: number;
+    hasMore: boolean;
+    onPageChange: (page: number) => void;
+}
+
+function VirtualizedTable(props: VirtualizedTableProps) {
+    const {
+        columns, rows, selectedTable, totalRows, currentStart, currentEnd,
+        canEditTable, editModeEnabled, isPrimaryKeyColumn, editingCell,
+        handleCellDoubleClick, handleCellEdit, handleKeyDown, handleCellSave,
+        page, pageSize, hasMore, onPageChange
+    } = props;
+
+    const parentRef = useRef<HTMLDivElement>(null);
+
+    const rowVirtualizer = useVirtualizer({
+        count: rows.length,
+        getScrollElement: () => parentRef.current,
+        estimateSize: () => 35,
+        overscan: 5,
+    });
+
     return (
         <div className="flex flex-col h-full">
             {/* Table Header Info */}
-            <div className="px-4 py-2 border-b border-[var(--vscode-panel-border)] flex items-center justify-between">
+            <div className="px-4 py-2 border-b border-(--vscode-panel-border) flex items-center justify-between">
                 <div className="text-sm">
                     <span className="font-semibold">{selectedTable}</span>
-                    <span className="text-[var(--vscode-descriptionForeground)] ml-2">
+                    <span className="text-(--vscode-descriptionForeground) ml-2">
                         • {totalRows.toLocaleString()} total rows
                     </span>
                     {!canEditTable && editModeEnabled && (
@@ -177,102 +238,112 @@ export function DataViewer({ tableData, selectedTable, editModeEnabled, onPageCh
                         </span>
                     )}
                 </div>
-                <div className="text-xs text-[var(--vscode-descriptionForeground)]">
+                <div className="text-xs text-(--vscode-descriptionForeground)">
                     Showing {currentStart}-{currentEnd} of {totalRows.toLocaleString()}
                 </div>
             </div>
 
-            {/* Data Table */}
-            <div className="flex-1 overflow-auto">
-                <table className="w-full text-sm border-collapse">
-                    <thead className="sticky top-0 bg-[var(--vscode-editor-background)] border-b border-[var(--vscode-panel-border)]">
-                        <tr>
-                            {columns.map((column) => (
-                                <th
-                                    key={column}
-                                    className="px-3 py-2 text-left font-semibold text-xs uppercase text-[var(--vscode-descriptionForeground)]"
-                                >
-                                    <span className="flex items-center">
-                                        {column}
-                                        {isPrimaryKeyColumn(column) && (
-                                            <span className="ml-1" title="Primary Key">🔑</span>
-                                        )}
-                                    </span>
-                                </th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {rows.map((row, rowIndex) => (
-                            <tr
-                                key={rowIndex}
-                                className="border-b border-[var(--vscode-panel-border)] hover:bg-[var(--vscode-list-hoverBackground)]"
-                            >
-                                {columns.map((column) => {
-                                    const value = formatCellValue(row[column]);
-                                    const stringValue = String(value);
-                                    const isTruncated = stringValue.length > 200;
-                                    const displayValue = isTruncated
-                                        ? stringValue.substring(0, 200) + '...'
-                                        : stringValue;
-
-                                    const isEditing = editingCell?.rowIndex === rowIndex && editingCell?.columnName === column;
-                                    const isEditable = canEditTable && !isPrimaryKeyColumn(column);
-
-                                    return (
-                                        <td
-                                            key={column}
-                                            className={`px-3 py-2 max-w-md overflow-hidden text-ellipsis whitespace-nowrap ${isEditable ? 'cursor-pointer hover:bg-[var(--vscode-input-background)]' : ''} ${isPrimaryKeyColumn(column) ? 'opacity-60' : ''}`}
-                                            title={isTruncated ? stringValue : (isEditable ? 'Double-click to edit' : undefined)}
-                                            onDoubleClick={() => handleCellDoubleClick(rowIndex, column, row[column])}
-                                        >
-                                            {isEditing ? (
-                                                <input
-                                                    type="text"
-                                                    value={editingCell.value}
-                                                    onChange={(e) => handleCellEdit(e.target.value)}
-                                                    onKeyDown={handleKeyDown}
-                                                    onBlur={handleCellSave}
-                                                    autoFocus
-                                                    className="w-full bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] border border-[var(--vscode-focusBorder)] px-1 rounded"
-                                                />
-                                            ) : (
-                                                displayValue
+            {/* Virtual scrolled table */}
+            <div ref={parentRef} className="flex-1 overflow-auto">
+                <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }}>
+                    <table className="w-full text-sm border-collapse">
+                        <thead className="sticky top-0 bg-(--vscode-editor-background) border-b border-(--vscode-panel-border) z-10">
+                            <tr>
+                                {columns.map((column) => (
+                                    <th
+                                        key={column}
+                                        className="px-3 py-2 text-left font-semibold text-xs uppercase text-(--vscode-descriptionForeground)"
+                                    >
+                                        <span className="flex items-center">
+                                            {column}
+                                            {isPrimaryKeyColumn(column) && (
+                                                <span className="ml-1" title="Primary Key">🔑</span>
                                             )}
-                                        </td>
-                                    );
-                                })}
+                                        </span>
+                                    </th>
+                                ))}
                             </tr>
-                        ))}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                                const rowIndex = virtualRow.index;
+                                const row = rows[rowIndex];
 
-                {rows.length === 0 && (
-                    <div className="flex items-center justify-center py-12 text-[var(--vscode-descriptionForeground)]">
-                        No data in this table
-                    </div>
-                )}
+                                return (
+                                    <tr
+                                        key={virtualRow.key}
+                                        data-index={virtualRow.index}
+                                        ref={rowVirtualizer.measureElement}
+                                        style={{
+                                            position: 'absolute',
+                                            top: 0,
+                                            left: 0,
+                                            width: '100%',
+                                            transform: `translateY(${virtualRow.start}px)`,
+                                        }}
+                                        className="border-b border-(--vscode-panel-border) hover:bg-(--vscode-list-hoverBackground)"
+                                    >
+                                        {columns.map((column) => {
+                                            const value = formatCellValue(row[column]);
+                                            const stringValue = String(value);
+                                            const isTruncated = stringValue.length > 200;
+                                            const displayValue = isTruncated
+                                                ? stringValue.substring(0, 200) + '...'
+                                                : stringValue;
+
+                                            const isEditing = editingCell?.rowIndex === rowIndex && editingCell?.columnName === column;
+                                            const isEditable = canEditTable && !isPrimaryKeyColumn(column);
+
+                                            return (
+                                                <td
+                                                    key={column}
+                                                    className={`px-3 py-2 max-w-md overflow-hidden text-ellipsis whitespace-nowrap ${isEditable ? 'cursor-pointer hover:bg-(--vscode-input-background)' : ''} ${isPrimaryKeyColumn(column) ? 'opacity-60' : ''}`}
+                                                    title={isTruncated ? stringValue : (isEditable ? 'Double-click to edit' : undefined)}
+                                                    onDoubleClick={() => handleCellDoubleClick(rowIndex, column, row[column])}
+                                                >
+                                                    {isEditing ? (
+                                                        <input
+                                                            type="text"
+                                                            value={editingCell.value}
+                                                            onChange={(e) => handleCellEdit(e.target.value)}
+                                                            onKeyDown={handleKeyDown}
+                                                            onBlur={handleCellSave}
+                                                            autoFocus
+                                                            className="w-full bg-(--vscode-input-background) text-(--vscode-input-foreground) border border-(--vscode-focusBorder) px-1 rounded"
+                                                        />
+                                                    ) : (
+                                                        displayValue
+                                                    )}
+                                                </td>
+                                            );
+                                        })}
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
             {/* Pagination */}
             {totalRows > pageSize && (
-                <div className="px-4 py-2 border-t border-[var(--vscode-panel-border)] flex items-center justify-between">
+                <div className="px-4 py-2 border-t border-(--vscode-panel-border) flex items-center justify-between">
                     <button
                         onClick={() => onPageChange(page - 1)}
                         disabled={page === 1}
-                        className="px-3 py-1 text-xs bg-[var(--vscode-button-secondaryBackground)] hover:bg-[var(--vscode-button-secondaryHoverBackground)] text-[var(--vscode-button-secondaryForeground)] rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="px-3 py-1 text-xs bg-(--vscode-button-secondaryBackground) hover:bg-(--vscode-button-secondaryHoverBackground) text-(--vscode-button-secondaryForeground) rounded disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         ← Previous
                     </button>
 
-                    <span className="text-xs text-[var(--vscode-descriptionForeground)]">
+                    <span className="text-xs text-(--vscode-descriptionForeground)">
                         Page {page} of {Math.ceil(totalRows / pageSize)}
                     </span>
 
                     <button
                         onClick={() => onPageChange(page + 1)}
                         disabled={!hasMore}
-                        className="px-3 py-1 text-xs bg-[var(--vscode-button-secondaryBackground)] hover:bg-[var(--vscode-button-secondaryHoverBackground)] text-[var(--vscode-button-secondaryForeground)] rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="px-3 py-1 text-xs bg-(--vscode-button-secondaryBackground) hover:bg-(--vscode-button-secondaryHoverBackground) text-(--vscode-button-secondaryForeground) rounded disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         Next →
                     </button>
