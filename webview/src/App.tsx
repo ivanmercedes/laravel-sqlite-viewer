@@ -136,7 +136,7 @@ export function App() {
                             }`}
                         title={autoRefreshEnabled ? 'Auto-refresh is ON - Click to disable' : 'Enable auto-refresh to update on DB changes'}
                     >
-                        {autoRefreshEnabled ? '🔄 Auto-Refresh: ON' : '🔄 Auto-Refresh'}
+                        {autoRefreshEnabled ? 'Auto-Refresh: ON' : 'Auto-Refresh'}
                     </button>
 
                     {/* Edit Mode Toggle */}
