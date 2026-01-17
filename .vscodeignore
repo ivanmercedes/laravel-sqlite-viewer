@@ -2,9 +2,11 @@
 .vscode-test/**
 out/**
 node_modules/**
+!node_modules/sql.js/**
 !node_modules/better-sqlite3/**
 src/**
 webview/**
+!webview/dist/**
 .gitignore
 .yarnrc
 esbuild.js
