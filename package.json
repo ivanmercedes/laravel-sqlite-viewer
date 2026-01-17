@@ -2,10 +2,10 @@
   "name": "laravel-sqlite-viewer",
   "displayName": "Laravel SQLite Viewer",
   "description": "Explore Laravel SQLite databases directly inside VS Code.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "IvanMercedes",
   "engines": {
-    "vscode": "^1.108.0"
+    "vscode": "^1.100.0"
   },
   "categories": [
     "Other"
