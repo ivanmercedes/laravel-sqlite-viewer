@@ -2,6 +2,45 @@
 
 A powerful VS Code extension for viewing and managing SQLite databases with advanced features like inline editing, auto-refresh, and intelligent database discovery.
 
+## Usage
+
+### Opening a Database
+
+**Method 1: Find Databases Command**
+1. Open Command Palette (Ctrl+Shift+P / Cmd+Shift+P)
+2. Type "SQLite: Find SQLite Databases"
+3. Select a database from the list
+
+**Method 2: File Explorer**
+1. Right-click any .sqlite, .db, or .sqlite3 file
+2. Select "Open with SQLite Viewer"
+
+### Viewing Data
+
+1. Select a table from the Schema Explorer sidebar
+2. Browse data in the main panel
+3. Use pagination controls to navigate large tables
+
+### Editing Data
+
+1. Click the "Edit Mode" toggle button in the header
+2. Read the warning and confirm
+3. Double-click any cell to edit (except primary keys)
+4. Press Enter to save or Escape to cancel
+
+### Running Queries
+
+1. Switch to the "SQL Runner" tab
+2. Write your SQL query
+3. Click "Execute" or press Ctrl+Enter
+4. View results in the data grid below
+
+### Auto-Refresh
+
+1. Click the "Auto-Refresh" toggle button
+2. When another app or process modifies the database, the UI updates automatically
+3. Perfect for monitoring databases that change frequently
+
 ## Features
 
 **Database Viewing**
@@ -43,45 +82,6 @@ A powerful VS Code extension for viewing and managing SQLite databases with adva
 - Primary key required for inline editing
 - Query classification (READ/WRITE/SCHEMA)
 - Parameterized queries prevent SQL injection
-
-## Usage
-
-### Opening a Database
-
-**Method 1: Find Databases Command**
-1. Open Command Palette (Ctrl+Shift+P / Cmd+Shift+P)
-2. Type "SQLite: Find SQLite Databases"
-3. Select a database from the list
-
-**Method 2: File Explorer**
-1. Right-click any .sqlite, .db, or .sqlite3 file
-2. Select "Open with SQLite Viewer"
-
-### Viewing Data
-
-1. Select a table from the Schema Explorer sidebar
-2. Browse data in the main panel
-3. Use pagination controls to navigate large tables
-
-### Editing Data
-
-1. Click the "Edit Mode" toggle button in the header
-2. Read the warning and confirm
-3. Double-click any cell to edit (except primary keys)
-4. Press Enter to save or Escape to cancel
-
-### Running Queries
-
-1. Switch to the "SQL Runner" tab
-2. Write your SQL query
-3. Click "Execute" or press Ctrl+Enter
-4. View results in the data grid below
-
-### Auto-Refresh
-
-1. Click the "Auto-Refresh" toggle button
-2. When another app or process modifies the database, the UI updates automatically
-3. Perfect for monitoring databases that change frequently
 
 ## Performance
 
